@@ -1,5 +1,5 @@
 
-name: Build Flybear Task APK
+name: Build Flybear Task Project 2 APK
 
 on:
   workflow_dispatch:
@@ -24,10 +24,17 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Extract Android project
+      - name: Check Project 2 ZIP
         run: |
-          unzip -o FlybearTaskAndroidProject.zip -d extracted
-          ls -la extracted/FlybearTaskAndroid
+          test -f FlybearTaskAndroidProject-v2.zip
+
+      - name: Extract Project 2
+        run: |
+          mkdir extracted
+          unzip -o FlybearTaskAndroidProject-v2.zip -d extracted
+          test -f extracted/settings.gradle
+          test -f extracted/app/build.gradle
+          test -f extracted/app/src/main/AndroidManifest.xml
 
       - name: Install Gradle
         run: |
@@ -35,13 +42,14 @@ jobs:
           unzip -q gradle.zip
           echo "$GITHUB_WORKSPACE/gradle-8.9/bin" >> "$GITHUB_PATH"
 
-      - name: Build APK
-        working-directory: extracted/FlybearTaskAndroid
+      - name: Build Debug APK
+        working-directory: extracted
         run: gradle assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: FlybearTask-APK
-          path: extracted/FlybearTaskAndroid/app/build/outputs/apk/debug/app-debug.apk
+          name: FlybearTask-Project2-APK
+          path: extracted/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+          retention-days: 30
