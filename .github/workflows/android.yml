@@ -24,32 +24,82 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Check Project 2 ZIP
+      - name: Prepare Android project
+        id: prepare
+        shell: bash
         run: |
-          test -f FlybearTaskAndroidProject-v2.zip
+          set -euo pipefail
 
-      - name: Extract Project 2
-        run: |
-          mkdir extracted
-          unzip -o FlybearTaskAndroidProject-v2.zip -d extracted
-          test -f extracted/settings.gradle
-          test -f extracted/app/build.gradle
-          test -f extracted/app/src/main/AndroidManifest.xml
+          mkdir -p extracted
+
+          ZIP_FILE=""
+
+          if [ -f "FlybearTaskAndroidProject-v2.zip" ]; then
+            ZIP_FILE="FlybearTaskAndroidProject-v2.zip"
+          else
+            ZIP_FILE=$(find . -maxdepth 1 -type f \
+              -iname 'FlybearTaskAndroidProject*.zip' \
+              -print -quit || true)
+          fi
+
+          if [ -n "$ZIP_FILE" ]; then
+            echo "Found project ZIP: $ZIP_FILE"
+            unzip -oq "$ZIP_FILE" -d extracted
+            SEARCH_DIR="$GITHUB_WORKSPACE/extracted"
+          elif [ -f "app/build.gradle" ] && [ -f "settings.gradle" ]; then
+            echo "Using Android project already in repository."
+            SEARCH_DIR="$GITHUB_WORKSPACE"
+          else
+            echo "::error::Android project ZIP not found."
+            echo "Upload FlybearTaskAndroidProject-v2.zip to the repository root."
+            echo "Files currently in repository:"
+            ls -la
+            exit 1
+          fi
+
+          SETTINGS_FILE=$(find "$SEARCH_DIR" -type f \
+            -name settings.gradle -print -quit || true)
+
+          if [ -z "$SETTINGS_FILE" ]; then
+            echo "::error::settings.gradle was not found after extraction."
+            find "$SEARCH_DIR" -maxdepth 4 -type f | head -100
+            exit 1
+          fi
+
+          PROJECT_DIR=$(dirname "$SETTINGS_FILE")
+
+          if [ ! -f "$PROJECT_DIR/app/build.gradle" ]; then
+            echo "::error::app/build.gradle was not found in $PROJECT_DIR"
+            find "$SEARCH_DIR" -maxdepth 5 -type f | head -100
+            exit 1
+          fi
+
+          if [ ! -f "$PROJECT_DIR/app/src/main/AndroidManifest.xml" ]; then
+            echo "::error::AndroidManifest.xml is missing from the app folder."
+            exit 1
+          fi
+
+          echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
+          echo "Android project found at: $PROJECT_DIR"
 
       - name: Install Gradle
+        shell: bash
         run: |
-          curl -fsSL https://services.gradle.org/distributions/gradle-8.9-bin.zip -o gradle.zip
-          unzip -q gradle.zip
-          echo "$GITHUB_WORKSPACE/gradle-8.9/bin" >> "$GITHUB_PATH"
+          set -euo pipefail
+          curl -fL --retry 3 \
+            https://services.gradle.org/distributions/gradle-8.9-bin.zip \
+            -o "$RUNNER_TEMP/gradle.zip"
+          unzip -oq "$RUNNER_TEMP/gradle.zip" -d "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/gradle-8.9/bin" >> "$GITHUB_PATH"
 
       - name: Build Debug APK
-        working-directory: extracted
-        run: gradle assembleDebug
+        working-directory: ${{ steps.prepare.outputs.project_dir }}
+        run: gradle --no-daemon assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: FlybearTask-Project2-APK
-          path: extracted/app/build/outputs/apk/debug/app-debug.apk
+          path: ${{ steps.prepare.outputs.project_dir }}/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 30
